@@ -24,6 +24,7 @@ async def list_failures(limit: int = Query(default=20, le=100)):
                 "triggered_at": r.triggered_at.isoformat(),
                 "has_rca": r.rca is not None,
                 "summary": r.rca.summary if r.rca else None,
+                "is_flaky": (r.rca.flaky_assessment_json or {}).get("is_flaky", False) if r.rca and r.rca.flaky_assessment_json else False,
             }
             for r in rows
         ]

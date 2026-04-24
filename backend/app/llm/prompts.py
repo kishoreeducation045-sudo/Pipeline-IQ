@@ -57,6 +57,7 @@ def build_user_prompt(
     ctx: FailureContext,
     candidates: list[Candidate],
     similar_failures: list[dict],
+    flaky_result: dict | None = None,
 ) -> str:
     # Select most relevant log lines (errors + surrounding context)
     error_indices = [i for i, l in enumerate(ctx.logs) if l.level == "error"]
@@ -97,6 +98,19 @@ def build_user_prompt(
         )
     sim_text = "\n".join(sim_parts) if sim_parts else "(no similar past failures found)"
 
+    # Flaky signals section
+    flaky_section = ""
+    if flaky_result and flaky_result.get("is_flaky"):
+        flaky_section = f"""
+FLAKY SIGNALS DETECTED (rule-based heuristic):
+  Category: {flaky_result.get('flaky_category', 'unknown')}
+  Score: {flaky_result.get('flaky_score', 0)}
+  Matched: {flaky_result.get('matched_signals', [])}
+
+  Note: These patterns often indicate transient/infrastructure failures.
+  Weigh this as supporting evidence but use your own judgment.
+"""
+
     return f"""FAILURE ID: {ctx.id}
 REPO: {ctx.repo_full_name}
 WORKFLOW: {ctx.workflow_name}
@@ -121,6 +135,6 @@ CANDIDATES FROM RULE-BASED DETECTOR (ranked by prior confidence):
 
 SIMILAR PAST FAILURES (from knowledge base):
 {sim_text}
-
+{flaky_section}
 Produce the RCA JSON per the schema in your system prompt. Set failure_id="{ctx.id}".
 """

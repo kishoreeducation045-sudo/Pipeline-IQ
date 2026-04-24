@@ -1,6 +1,13 @@
 # app/models/rca.py
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Literal, Optional
+
+class FlakyAssessment(BaseModel):
+    is_flaky: bool
+    flaky_score: float = Field(ge=0, le=1)
+    flaky_category: Optional[str] = None
+    matched_signals: list[dict] = []
+    recommended_action: str
 
 class Evidence(BaseModel):
     source: Literal["log", "diff", "test", "commit"]
@@ -38,3 +45,4 @@ class RCAReport(BaseModel):
     summary: str                                # 1-sentence human summary
     latency_ms: int                             # How long Claude took
     similar_past_failures: list[str] = []       # IDs of retrieved past cases
+    flaky_assessment: Optional[FlakyAssessment] = None

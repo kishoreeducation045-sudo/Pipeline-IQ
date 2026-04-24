@@ -72,14 +72,21 @@ export default function Feed() {
                 )}
               </div>
               <div className="text-xs text-right shrink-0">
-                <div
-                  className={`inline-block px-2 py-1 rounded font-medium ${
-                    f.conclusion === "failure"
-                      ? "bg-red-100 text-red-700"
-                      : "bg-amber-100 text-amber-700"
-                  }`}
-                >
-                  {f.conclusion}
+                <div className="flex items-center gap-1.5 justify-end">
+                  {f.is_flaky && (
+                    <div className="inline-block px-2 py-1 rounded font-medium bg-yellow-100 text-yellow-700">
+                      ⚡ Flaky
+                    </div>
+                  )}
+                  <div
+                    className={`inline-block px-2 py-1 rounded font-medium ${
+                      f.conclusion === "failure"
+                        ? "bg-red-100 text-red-700"
+                        : "bg-amber-100 text-amber-700"
+                    }`}
+                  >
+                    {f.conclusion}
+                  </div>
                 </div>
                 <div className="text-neutral-500 mt-1">
                   {new Date(f.triggered_at).toLocaleTimeString()}

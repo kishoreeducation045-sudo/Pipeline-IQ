@@ -9,6 +9,7 @@ export interface FailureSummary {
   triggered_at: string;
   has_rca: boolean;
   summary: string | null;
+  is_flaky?: boolean;
 }
 
 export async function listFailures(): Promise<FailureSummary[]> {
@@ -26,5 +27,11 @@ export async function getFailure(id: string): Promise<Record<string, unknown>> {
 export async function getMetrics(): Promise<Record<string, unknown>> {
   const r = await fetch(`${BASE}/metrics`);
   if (!r.ok) throw new Error("failed to get metrics");
+  return r.json();
+}
+
+export async function getROI(): Promise<Record<string, unknown>> {
+  const r = await fetch(`${BASE}/metrics/roi`);
+  if (!r.ok) throw new Error("failed to get ROI");
   return r.json();
 }

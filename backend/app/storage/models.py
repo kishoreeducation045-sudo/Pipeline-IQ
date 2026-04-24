@@ -50,6 +50,7 @@ class RCARow(Base):
     latency_ms: Mapped[int] = mapped_column(Integer)
     top1_class: Mapped[str] = mapped_column(String, index=True)
     ground_truth_class: Mapped[str | None] = mapped_column(String, nullable=True)
+    flaky_assessment_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     failure: Mapped[FailureRow] = relationship(back_populates="rca")
 
     def to_dict(self) -> dict:
@@ -64,6 +65,7 @@ class RCARow(Base):
             "latency_ms": self.latency_ms,
             "top1_class": self.top1_class,
             "ground_truth_class": self.ground_truth_class,
+            "flaky_assessment": self.flaky_assessment_json,
         }
 
 class MetricsSnapshotRow(Base):

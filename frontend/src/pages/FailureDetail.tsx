@@ -37,6 +37,20 @@ interface Remediation {
   risk_level: string;
 }
 
+interface FlakySignal {
+  keyword: string;
+  category: string;
+  log_line: string;
+}
+
+interface FlakyAssessmentData {
+  is_flaky: boolean;
+  flaky_score: number;
+  flaky_category: string | null;
+  matched_signals: FlakySignal[];
+  recommended_action: string;
+}
+
 interface RCAData {
   id: string;
   failure_id: string;
@@ -48,6 +62,7 @@ interface RCAData {
   latency_ms: number;
   top1_class: string;
   ground_truth_class: string | null;
+  flaky_assessment?: FlakyAssessmentData | null;
 }
 
 interface FailureDetailResponse {
@@ -58,10 +73,11 @@ interface FailureDetailResponse {
 export default function FailureDetail({ id }: { id: string }) {
   const [data, setData] = useState<FailureDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [signalsOpen, setSignalsOpen] = useState(false);
 
   useEffect(() => {
     getFailure(id)
-      .then((d) => setData(d as FailureDetailResponse))
+      .then((d) => setData(d as unknown as FailureDetailResponse))
       .catch((e) => setError(String(e)));
   }, [id]);
 
@@ -89,6 +105,54 @@ export default function FailureDetail({ id }: { id: string }) {
 
       {rca ? (
         <div className="mt-6 space-y-6">
+          {/* Flaky Assessment Banner */}
+          {rca.flaky_assessment && rca.flaky_assessment.is_flaky && (
+            <section className="p-4 bg-yellow-50 border-2 border-yellow-400 rounded-lg">
+              <h2 className="text-xl font-bold text-yellow-900">
+                ⚡ Likely Flaky — Retry First
+              </h2>
+              <p className="mt-1 text-yellow-800">
+                {rca.flaky_assessment.recommended_action}
+              </p>
+              <div className="flex items-center gap-3 mt-3">
+                <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-yellow-200 text-yellow-900">
+                  {rca.flaky_assessment.flaky_category}
+                </span>
+                <span className="text-sm font-medium text-yellow-800">
+                  Flaky Score: {(rca.flaky_assessment.flaky_score * 100).toFixed(0)}%
+                </span>
+              </div>
+              {rca.flaky_assessment.matched_signals.length > 0 && (
+                <div className="mt-3">
+                  <button
+                    onClick={() => setSignalsOpen(!signalsOpen)}
+                    className="text-xs text-yellow-700 underline hover:text-yellow-900"
+                  >
+                    {signalsOpen ? "Hide" : "Show"} matched signals ({rca.flaky_assessment.matched_signals.length})
+                  </button>
+                  {signalsOpen && (
+                    <ul className="mt-2 space-y-2">
+                      {rca.flaky_assessment.matched_signals.map((s, i) => (
+                        <li key={i} className="text-xs bg-yellow-100 p-2 rounded border border-yellow-300">
+                          <div className="font-semibold text-yellow-900">{s.keyword}</div>
+                          <pre className="mt-1 whitespace-pre-wrap font-mono text-yellow-800 break-words">
+                            {s.log_line}
+                          </pre>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+
+          {rca.flaky_assessment && !rca.flaky_assessment.is_flaky && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-sm font-medium border border-green-200">
+              ✅ Real failure — no flaky patterns detected
+            </div>
+          )}
+
           <section className="p-4 bg-white border rounded-lg">
             <h2 className="text-lg font-semibold">Summary</h2>
             <p className="mt-2">{rca.summary}</p>

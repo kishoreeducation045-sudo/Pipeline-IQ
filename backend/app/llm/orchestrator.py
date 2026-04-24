@@ -3,10 +3,11 @@ import time
 import uuid
 from datetime import datetime, timezone
 from app.detection.hybrid import HybridDetector
+from app.detection.flaky import FlakyClassifier
 from app.llm.client import claude
 from app.llm.prompts import RCA_SYSTEM_PROMPT, build_user_prompt
 from app.models.failure import FailureContext
-from app.models.rca import RCAReport
+from app.models.rca import RCAReport, FlakyAssessment
 from app.storage.vector import vector_store
 from app.storage.db import get_session
 from app.storage.models import FailureRow, RCARow
@@ -21,14 +22,17 @@ class RCAOrchestrator:
         # 1. Hybrid detection produces candidates
         candidates = self.detector.detect(ctx, top_k=5)
 
-        # 2. Retrieve similar past failures from ChromaDB
+        # 2. Flaky classification (before Claude call)
+        flaky_result = FlakyClassifier().classify(ctx)
+
+        # 3. Retrieve similar past failures from ChromaDB
         query_text = self._failure_signature(ctx)
         similar = vector_store.similar(query_text, k=3)
 
-        # 3. Build prompt
-        user_prompt = build_user_prompt(ctx, candidates, similar)
+        # 4. Build prompt (with flaky signals)
+        user_prompt = build_user_prompt(ctx, candidates, similar, flaky_result=flaky_result)
 
-        # 4. Call Claude with structured output
+        # 5. Call Claude with structured output
         report: RCAReport = await claude.generate_json(
             system=RCA_SYSTEM_PROMPT,
             user=user_prompt,
@@ -41,10 +45,13 @@ class RCAOrchestrator:
         report.latency_ms = int((time.perf_counter() - start) * 1000)
         report.similar_past_failures = [s["id"] for s in similar]
 
-        # 5. Persist
+        # 6. Attach flaky assessment
+        report.flaky_assessment = FlakyAssessment.model_validate(flaky_result)
+
+        # 7. Persist
         await self._persist(ctx, report)
 
-        # 6. Index in ChromaDB for future retrieval
+        # 8. Index in ChromaDB for future retrieval
         vector_store.add(
             failure_id=ctx.id,
             summary_text=f"{report.summary}\n\n{self._failure_signature(ctx)}",
@@ -98,5 +105,6 @@ class RCAOrchestrator:
                 latency_ms=report.latency_ms,
                 top1_class=report.hypotheses[0].failure_class if report.hypotheses else "unknown",
             )
+            rr.flaky_assessment_json = report.flaky_assessment.model_dump() if report.flaky_assessment else None
             session.add(rr)
             await session.commit()

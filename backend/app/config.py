@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     chroma_path: str = "/data/chroma"
     cors_origins: list[str] = ["http://localhost:5173"]
     log_level: str = "INFO"
+    minutes_saved_per_failure: int = 120
+    dev_hourly_usd: int = 100
+    llm_cost_per_rca_usd: float = 0.04
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
