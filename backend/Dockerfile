@@ -10,7 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install uv for fast dependency management (or use pip if preferred)
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir uv && uv pip install --system -r pyproject.toml
+# Stub lets setuptools discover the package during dep install without copying source yet.
+# The real app/ is copied below and overwrites the stub, preserving layer-cache behaviour.
+RUN pip install --no-cache-dir uv && \
+    mkdir -p app && touch app/__init__.py && \
+    uv pip install --system .
 
 COPY app ./app
 
