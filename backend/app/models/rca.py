@@ -43,6 +43,6 @@ class RCAReport(BaseModel):
     hypotheses: list[Hypothesis]                # Ranked, max 3
     recommended_remediation: Remediation
     summary: str                                # 1-sentence human summary
-    latency_ms: int                             # How long Claude took
+    latency_ms: int                             # How long Gemini took
     similar_past_failures: list[str] = []       # IDs of retrieved past cases
     flaky_assessment: Optional[FlakyAssessment] = None

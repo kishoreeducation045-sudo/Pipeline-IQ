@@ -1,13 +1,31 @@
 # app/llm/client.py
 import asyncio
 import json
-from anthropic import AsyncAnthropic, APIError, RateLimitError
+import re
+from google import genai
+from google.genai.errors import APIError
 from app.config import settings
 
-class ClaudeClient:
+def _clean_json(raw: str) -> str:
+    """Best-effort cleanup of LLM JSON output."""
+    text = raw.strip()
+    # Strip markdown fences
+    if text.startswith("```"):
+        text = text.split("```", 2)[1]
+        if text.startswith("json"):
+            text = text[4:]
+        text = text.rstrip("`").strip()
+    # Remove trailing commas before } or ]
+    text = re.sub(r",\s*([}\]])", r"\1", text)
+    # Remove JS-style comments
+    text = re.sub(r"//.*?$", "", text, flags=re.MULTILINE)
+    return text
+
+
+class GeminiClient:
     def __init__(self):
-        self.client = AsyncAnthropic(api_key=settings.anthropic_api_key)
-        self.model = settings.claude_model
+        self.client = genai.Client(api_key=settings.gemini_api_key)
+        self.model = settings.gemini_model
 
     async def generate(
         self,
@@ -17,17 +35,16 @@ class ClaudeClient:
         temperature: float = 0.2,
     ) -> str:
         """Basic text generation. Returns raw string response."""
-        msg = await self.client.messages.create(
+        response = await self.client.aio.models.generate_content(
             model=self.model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            system=system,
-            messages=[{"role": "user", "content": user}],
+            contents=user,
+            config=genai.types.GenerateContentConfig(
+                system_instruction=system,
+                max_output_tokens=max_tokens,
+                temperature=temperature,
+            )
         )
-        # Response is a list of content blocks; we extract text blocks
-        return "".join(
-            block.text for block in msg.content if block.type == "text"
-        )
+        return response.text
 
     async def generate_with_retry(
         self,
@@ -41,11 +58,8 @@ class ClaudeClient:
         for attempt in range(max_attempts):
             try:
                 return await self.generate(system, user, max_tokens)
-            except RateLimitError as e:
-                last_err = e
-                await asyncio.sleep(delay)
-                delay *= 2
-            except APIError as e:
+            except Exception as e:
+                # Catch general API errors for retry logic
                 last_err = e
                 if attempt < max_attempts - 1:
                     await asyncio.sleep(delay)
@@ -62,30 +76,36 @@ class ClaudeClient:
         user: str,
         schema_model,  # Pydantic model class
         max_tokens: int = 2048,
-        max_attempts: int = 2,
+        max_attempts: int = 3,
     ):
-        """Generate, parse JSON, validate against Pydantic model; retry once on malformed."""
+        """Generate, parse JSON, validate against Pydantic model; retry on malformed."""
+        last_error = None
         for attempt in range(max_attempts):
-            raw = await self.generate_with_retry(system, user, max_tokens)
-            # Strip optional ```json fences
-            cleaned = raw.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("```", 2)[1]
-                if cleaned.startswith("json"):
-                    cleaned = cleaned[4:]
-                cleaned = cleaned.rstrip("`").strip()
+            # Tell Gemini to output strictly JSON
+            system_json = (
+                system
+                + "\n\nIMPORTANT: Output ONLY valid JSON. "
+                "No trailing commas. No comments. No markdown fences. "
+                "Use double quotes for all keys and string values."
+            )
+            raw = await self.generate_with_retry(system_json, user, max_tokens)
+
+            cleaned = _clean_json(raw)
+
             try:
                 data = json.loads(cleaned)
                 return schema_model.model_validate(data)
             except (json.JSONDecodeError, ValueError) as e:
-                if attempt == max_attempts - 1:
-                    raise
-                # Ask Claude to fix its own output
-                user = (
-                    f"Your previous response was not valid JSON matching the required schema. "
-                    f"Error: {e}\n\n"
-                    f"Original response:\n{raw}\n\n"
-                    f"Please return ONLY the corrected JSON, no prose, no code fences."
-                )
+                last_error = e
+                if attempt < max_attempts - 1:
+                    # Ask Gemini to fix its own output
+                    user = (
+                        f"Your previous response was not valid JSON. "
+                        f"Error: {e}\n\n"
+                        f"Original response:\n{raw}\n\n"
+                        f"Please return ONLY the corrected, valid JSON without markdown fences."
+                    )
+        raise last_error  # type: ignore[misc]
 
-claude = ClaudeClient()
+gemini = GeminiClient()
+

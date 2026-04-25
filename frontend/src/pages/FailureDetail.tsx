@@ -1,247 +1,256 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { getFailure } from "../api/client";
+import type { FailureDetail as FailureDetailType, RCAData } from "../api/client";
+import { StatusBadge } from "../components/StatusBadge";
+import { ConfidenceBar } from "../components/ConfidenceBar";
+import { navigate } from "../App";
 
-interface FailureData {
-  id: string;
-  provider: string;
-  repo_full_name: string;
-  workflow_name: string;
-  job_name: string;
-  run_id: string;
-  run_url: string;
-  conclusion: string;
-  triggered_at: string;
-  completed_at: string;
-  duration_seconds: number;
-}
-
-interface Evidence {
-  source: string;
-  location: string;
-  snippet: string;
-}
-
-interface Hypothesis {
-  rank: number;
-  title: string;
-  confidence: number;
-  description: string;
-  failure_class: string;
-  evidence: Evidence[];
-}
-
-interface Remediation {
-  action: string;
-  rationale: string;
-  commands: string[];
-  risk_level: string;
-}
-
-interface FlakySignal {
-  keyword: string;
-  category: string;
-  log_line: string;
-}
-
-interface FlakyAssessmentData {
-  is_flaky: boolean;
-  flaky_score: number;
-  flaky_category: string | null;
-  matched_signals: FlakySignal[];
-  recommended_action: string;
-}
-
-interface RCAData {
-  id: string;
-  failure_id: string;
-  generated_at: string;
-  summary: string;
-  hypotheses_json: Hypothesis[];
-  recommended_remediation: Remediation;
-  similar_past_failures: string[];
-  latency_ms: number;
-  top1_class: string;
-  ground_truth_class: string | null;
-  flaky_assessment?: FlakyAssessmentData | null;
-}
-
-interface FailureDetailResponse {
-  failure: FailureData;
-  rca: RCAData | null;
-}
-
-export default function FailureDetail({ id }: { id: string }) {
-  const [data, setData] = useState<FailureDetailResponse | null>(null);
+export const FailureDetail: React.FC<{ id: string }> = ({ id }) => {
+  const [data, setData] = useState<{ failure: FailureDetailType; rca: RCAData | null } | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [signalsOpen, setSignalsOpen] = useState(false);
 
   useEffect(() => {
     getFailure(id)
-      .then((d) => setData(d as unknown as FailureDetailResponse))
-      .catch((e) => setError(String(e)));
+      .then(setData)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
   }, [id]);
 
-  if (error) return <div className="p-8 text-red-600">Error: {error}</div>;
-  if (!data) return <div className="p-8">Loading…</div>;
+  if (loading) {
+    return (
+      <div className="p-8 space-y-6">
+        <div className="h-4 w-24 bg-slate-800 rounded animate-pulse" />
+        <div className="h-32 bg-slate-900 rounded-xl animate-pulse" />
+        <div className="h-64 bg-slate-900 rounded-xl animate-pulse" />
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="p-8">
+        <button onClick={() => navigate("/")} className="text-indigo-400 hover:text-indigo-300 mb-6 text-sm">
+          ← Back to Feed
+        </button>
+        <div className="bg-rose-950/50 border border-rose-900 rounded-xl p-6 text-rose-400">
+          Error loading details: {error || "Not found"}
+        </div>
+      </div>
+    );
+  }
 
   const { failure, rca } = data;
+  const isFlaky = rca?.flaky_assessment?.is_flaky === true;
+  const isClaude = import.meta.env.VITE_API_BASE?.includes("gemini") ? false : true;
+
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <a href="/" className="text-sm text-blue-600 hover:underline">
-        ← back to feed
-      </a>
-      <h1 className="text-2xl font-bold mt-2">{failure.repo_full_name}</h1>
-      <div className="text-neutral-600">
-        {failure.workflow_name} · {failure.job_name}
+    <div className="p-8 max-w-4xl mx-auto pb-20">
+      <button onClick={() => navigate("/")} className="text-indigo-400 hover:text-indigo-300 mb-6 text-sm font-medium">
+        ← Back to Feed
+      </button>
+
+      {/* HEADER CARD */}
+      <div className="bg-slate-900 ring-1 ring-white/5 rounded-xl p-6 mb-6">
+        <div className="flex justify-between items-start mb-4">
+          <div>
+            <h1 className="text-2xl font-bold text-white mb-1">{failure.repo_full_name}</h1>
+            <p className="text-slate-400">
+              {failure.workflow_name} · <span className="font-mono">{failure.job_name}</span>
+            </p>
+          </div>
+          <StatusBadge status={failure.conclusion} size="md" />
+        </div>
+        <div className="flex flex-wrap gap-3 mt-6">
+          <span className="bg-slate-800 text-slate-300 px-3 py-1 rounded-full text-xs font-medium border border-slate-700">
+            {failure.provider}
+          </span>
+          <span className="bg-slate-800 text-slate-300 px-3 py-1 rounded-full text-xs font-medium border border-slate-700">
+            ⏱ {failure.duration_seconds}s
+          </span>
+          <a
+            href={failure.run_url}
+            target="_blank"
+            rel="noreferrer"
+            className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1 rounded-full text-xs font-medium border border-slate-700 transition-colors"
+          >
+            View on GitHub →
+          </a>
+        </div>
       </div>
-      <a
-        href={failure.run_url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-xs text-blue-600 hover:underline"
-      >
-        View run on GitHub →
-      </a>
 
-      {rca ? (
-        <div className="mt-6 space-y-6">
-          {/* Flaky Assessment Banner */}
-          {rca.flaky_assessment && rca.flaky_assessment.is_flaky && (
-            <section className="p-4 bg-yellow-50 border-2 border-yellow-400 rounded-lg">
-              <h2 className="text-xl font-bold text-yellow-900">
-                ⚡ Likely Flaky — Retry First
-              </h2>
-              <p className="mt-1 text-yellow-800">
-                {rca.flaky_assessment.recommended_action}
-              </p>
-              <div className="flex items-center gap-3 mt-3">
-                <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-yellow-200 text-yellow-900">
-                  {rca.flaky_assessment.flaky_category}
-                </span>
-                <span className="text-sm font-medium text-yellow-800">
-                  Flaky Score: {(rca.flaky_assessment.flaky_score * 100).toFixed(0)}%
-                </span>
-              </div>
-              {rca.flaky_assessment.matched_signals.length > 0 && (
-                <div className="mt-3">
-                  <button
-                    onClick={() => setSignalsOpen(!signalsOpen)}
-                    className="text-xs text-yellow-700 underline hover:text-yellow-900"
-                  >
-                    {signalsOpen ? "Hide" : "Show"} matched signals ({rca.flaky_assessment.matched_signals.length})
-                  </button>
-                  {signalsOpen && (
-                    <ul className="mt-2 space-y-2">
-                      {rca.flaky_assessment.matched_signals.map((s, i) => (
-                        <li key={i} className="text-xs bg-yellow-100 p-2 rounded border border-yellow-300">
-                          <div className="font-semibold text-yellow-900">{s.keyword}</div>
-                          <pre className="mt-1 whitespace-pre-wrap font-mono text-yellow-800 break-words">
-                            {s.log_line}
-                          </pre>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-            </section>
-          )}
-
-          {rca.flaky_assessment && !rca.flaky_assessment.is_flaky && (
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-sm font-medium border border-green-200">
-              ✅ Real failure — no flaky patterns detected
-            </div>
-          )}
-
-          <section className="p-4 bg-white border rounded-lg">
-            <h2 className="text-lg font-semibold">Summary</h2>
-            <p className="mt-2">{rca.summary}</p>
-            <div className="text-xs text-neutral-500 mt-2">
-              Diagnosed in {rca.latency_ms} ms
-            </div>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-semibold mb-3">Ranked Hypotheses</h2>
-            <div className="space-y-3">
-              {rca.hypotheses_json.map((h: Hypothesis, i: number) => (
-                <div key={i} className="p-4 bg-white border rounded-lg">
-                  <div className="flex justify-between items-start">
-                    <div className="font-medium">
-                      #{h.rank} · {h.title}
-                    </div>
-                    <div className="text-sm font-semibold text-blue-600">
-                      {(h.confidence * 100).toFixed(0)}%
-                    </div>
+      {!rca ? (
+        <div className="bg-slate-900/50 rounded-xl p-10 flex flex-col items-center justify-center text-center">
+          <div className="relative flex h-8 w-8 mb-4">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-8 w-8 bg-indigo-500"></span>
+          </div>
+          <p className="text-slate-300 font-medium">AI is diagnosing this failure...</p>
+          <p className="text-slate-500 text-sm mt-2">This usually takes around 15 seconds.</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          
+          {/* FLAKY BANNER */}
+          {isFlaky ? (
+            <div className="bg-amber-950/30 border border-amber-500/50 rounded-xl p-5 relative overflow-hidden">
+              <div className="flex items-start gap-4">
+                <span className="text-3xl">⚡</span>
+                <div className="flex-1">
+                  <h2 className="text-amber-300 font-bold text-lg mb-1">Likely Flaky Infrastructure Issue</h2>
+                  <p className="text-amber-200/80 text-sm mb-3">{rca.flaky_assessment?.recommended_action}</p>
+                  
+                  <div className="flex items-center gap-3 mb-4">
+                    <span className="bg-amber-900/50 text-amber-400 px-2.5 py-0.5 border border-amber-700/50 rounded-full text-xs font-bold uppercase tracking-wider">
+                      {rca.flaky_assessment?.flaky_category || "Network"}
+                    </span>
+                    <span className="text-amber-500/80 text-xs font-mono">
+                      Score: {(rca.flaky_assessment!.flaky_score * 100).toFixed(0)}%
+                    </span>
                   </div>
-                  <p className="text-sm mt-1">{h.description}</p>
-                  <div className="text-xs text-neutral-500 mt-1">
-                    class: <code>{h.failure_class}</code>
-                  </div>
-                  <div className="mt-3 space-y-1">
-                    {h.evidence.map((e: Evidence, j: number) => (
-                      <div
-                        key={j}
-                        className="text-xs bg-neutral-50 p-2 rounded border"
-                      >
-                        <div className="text-neutral-600">
-                          <b>{e.source}</b>:{e.location}
+
+                  <details className="group">
+                    <summary className="cursor-pointer text-amber-500 hover:text-amber-400 text-sm font-medium mb-2 select-none">
+                      Show matched signals ({rca.flaky_assessment?.matched_signals.length})
+                    </summary>
+                    <div className="space-y-2 mt-3">
+                      {rca.flaky_assessment?.matched_signals.map((sig, i) => (
+                        <div key={i} className="bg-slate-950/50 p-3 rounded-lg border border-amber-900/30">
+                          <span className="text-amber-600 text-xs font-bold uppercase mr-2">{sig.keyword}</span>
+                          <code className="text-xs text-amber-200/70 font-mono break-all">{sig.log_line}</code>
                         </div>
-                        <pre className="mt-1 whitespace-pre-wrap font-mono break-words">
-                          {e.snippet}
-                        </pre>
+                      ))}
+                    </div>
+                  </details>
+                </div>
+                <button className="bg-transparent border border-amber-500 text-amber-500 hover:bg-amber-950/50 px-4 py-2 rounded-lg text-sm font-bold transition-colors">
+                  Retry Build
+                </button>
+              </div>
+            </div>
+          ) : rca.flaky_assessment && (
+            <div className="bg-emerald-950/30 border border-emerald-900 rounded-lg p-3 flex items-center gap-2">
+              <span className="text-emerald-500">✅</span>
+              <span className="text-emerald-400/80 text-sm">No flaky patterns detected — this is a real structural bug.</span>
+            </div>
+          )}
+
+          {/* SUMMARY CARD */}
+          <div className="bg-slate-900 ring-1 ring-white/5 rounded-xl p-6">
+            <h2 className="text-slate-400 text-sm font-bold tracking-wider uppercase mb-3 flex items-center gap-2">
+              <span>🤖</span> AI Summary
+            </h2>
+            <p className="text-slate-200 text-lg italic leading-relaxed">"{rca.summary}"</p>
+            <div className="mt-4 flex justify-between items-end border-t border-slate-800 pt-4">
+              <span className="text-slate-600 text-xs">
+                Powered by {isClaude ? "Claude 3.5 Sonnet" : "Gemini 2.5 Flash"}
+              </span>
+              <span className="text-slate-600 text-xs font-mono">
+                Diagnosed in {rca.latency_ms}ms
+              </span>
+            </div>
+          </div>
+
+          {/* ROOT CAUSE HYPOTHESES */}
+          <div>
+            <div className="flex items-center gap-3 mb-4 mt-8">
+              <h2 className="text-xl font-bold text-white">Root Cause Hypotheses</h2>
+              <span className="bg-indigo-600 outline outline-2 outline-slate-950 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold">
+                {rca.hypotheses_json.length}
+              </span>
+            </div>
+            
+            <div className="space-y-4">
+              {rca.hypotheses_json.map((h, i) => (
+                <div key={i} className="bg-slate-900 ring-1 ring-white/5 rounded-xl p-5">
+                  <div className="flex gap-4">
+                    <div className="shrink-0 pt-0.5">
+                      <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold">
+                        {h.rank}
                       </div>
-                    ))}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className="font-bold text-white text-lg">{h.title}</h3>
+                        <span className="bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
+                          {h.failure_class}
+                        </span>
+                      </div>
+                      
+                      <div className="mb-4">
+                        <ConfidenceBar value={h.confidence} label="Confidence Score" />
+                      </div>
+                      
+                      <p className="text-slate-300 text-sm mb-4">{h.description}</p>
+                      
+                      {h.evidence && h.evidence.length > 0 && (
+                        <details className="group">
+                          <summary className="text-indigo-400 hover:text-indigo-300 text-xs font-bold uppercase tracking-wider cursor-pointer select-none">
+                            Supporting Evidence ({h.evidence.length})
+                          </summary>
+                          <div className="space-y-3 mt-3">
+                            {h.evidence.map((ev, ei) => (
+                              <div key={ei} className="bg-slate-950 rounded-lg p-3 ring-1 ring-slate-800">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <span className="text-[10px] font-bold uppercase bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">
+                                    {ev.source}
+                                  </span>
+                                  <span className="text-slate-500 text-xs font-mono">{ev.location}</span>
+                                </div>
+                                <code className="block text-emerald-300 text-xs font-mono break-words whitespace-pre-wrap">
+                                  {ev.snippet}
+                                </code>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
-          </section>
+          </div>
 
-          <section className="p-4 bg-green-50 border border-green-200 rounded-lg">
-            <h2 className="text-lg font-semibold">Recommended Remediation</h2>
-            <div className="mt-2 font-medium">
-              {rca.recommended_remediation.action}
-            </div>
-            <p className="text-sm mt-1">
-              {rca.recommended_remediation.rationale}
-            </p>
-            {rca.recommended_remediation.commands?.length > 0 && (
-              <pre className="mt-2 p-3 bg-neutral-900 text-neutral-100 text-xs rounded overflow-x-auto">
-                {rca.recommended_remediation.commands.join("\n")}
-              </pre>
-            )}
-            <div className="text-xs mt-2">
-              Risk: <b>{rca.recommended_remediation.risk_level}</b>
-            </div>
-          </section>
+          {/* REMEDIATION CARD */}
+          {rca.recommended_remediation && (
+            <div className="bg-emerald-950/20 border border-emerald-900/50 rounded-xl p-6 mt-8">
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="text-emerald-400 font-bold text-lg flex items-center gap-2">
+                  <span>🔧</span> Recommended Fix
+                </h2>
+                <span className="bg-emerald-900/50 text-emerald-500 px-2 py-1 rounded text-xs font-bold border border-emerald-800/50">
+                  Risk: {rca.recommended_remediation.risk_level}
+                </span>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-emerald-200 font-medium text-sm mb-1">Action</h3>
+                  <p className="text-emerald-100/70 text-sm">{rca.recommended_remediation.action}</p>
+                </div>
+                
+                <div>
+                  <h3 className="text-emerald-200 font-medium text-sm mb-1">Rationale</h3>
+                  <p className="text-slate-300 text-sm">{rca.recommended_remediation.rationale}</p>
+                </div>
 
-          {rca.similar_past_failures?.length > 0 && (
-            <section className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <h2 className="text-lg font-semibold">Similar Past Failures</h2>
-              <p className="text-xs text-neutral-600 mb-2">
-                Retrieved from our knowledge base — PipelineIQ learns over time.
-              </p>
-              <ul className="text-sm space-y-1">
-                {rca.similar_past_failures.map((pastId: string) => (
-                  <li key={pastId}>
-                    <a
-                      href={`/failure/${pastId}`}
-                      className="text-blue-600 hover:underline"
-                    >
-                      {pastId}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </section>
+                {rca.recommended_remediation.commands && rca.recommended_remediation.commands.length > 0 && (
+                  <div>
+                    <h3 className="text-emerald-200 font-medium text-sm mb-2">Commands / Fix</h3>
+                    <div className="bg-slate-950 p-4 rounded-lg font-mono text-sm text-emerald-400 ring-1 ring-emerald-900/30 overflow-x-auto">
+                      {rca.recommended_remediation.commands.map((cmd, i) => (
+                        <div key={i}>{cmd}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
-        </div>
-      ) : (
-        <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded">
-          Diagnosing… RCA will appear here in ~15 seconds.
+
         </div>
       )}
     </div>
   );
-}
+};

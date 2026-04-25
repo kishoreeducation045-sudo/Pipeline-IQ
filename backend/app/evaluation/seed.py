@@ -218,13 +218,21 @@ def synthetic_resource_exhaustion_failure() -> FailureContext:
 
 async def seed_failures() -> None:
     """Process all 5 synthetic failure fixtures through the RCA pipeline and persist them."""
+    import asyncio
     from app.llm.orchestrator import RCAOrchestrator
     orchestrator = RCAOrchestrator()
-    for ctx in [
+    contexts = [
         synthetic_dependency_failure(),
         synthetic_syntax_error_failure(),
         synthetic_test_assertion_failure(),
         synthetic_config_drift_failure(),
         synthetic_resource_exhaustion_failure(),
-    ]:
-        await orchestrator.process(ctx)
+    ]
+    for i, ctx in enumerate(contexts):
+        try:
+            await orchestrator.process(ctx)
+            print(f"[seed] Processed {ctx.id} ({i+1}/{len(contexts)})")
+        except Exception as e:
+            print(f"[seed] Failed {ctx.id}: {e}")
+        if i < len(contexts) - 1:
+            await asyncio.sleep(15)  # Respect Gemini free-tier RPM limit

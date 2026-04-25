@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from app.detection.hybrid import HybridDetector
 from app.detection.flaky import FlakyClassifier
-from app.llm.client import claude
+from app.llm.client import gemini
 from app.llm.prompts import RCA_SYSTEM_PROMPT, build_user_prompt
 from app.models.failure import FailureContext
 from app.models.rca import RCAReport, FlakyAssessment
@@ -32,8 +32,8 @@ class RCAOrchestrator:
         # 4. Build prompt (with flaky signals)
         user_prompt = build_user_prompt(ctx, candidates, similar, flaky_result=flaky_result)
 
-        # 5. Call Claude with structured output
-        report: RCAReport = await claude.generate_json(
+        # 5. Call Gemini with structured output
+        report: RCAReport = await gemini.generate_json(
             system=RCA_SYSTEM_PROMPT,
             user=user_prompt,
             schema_model=RCAReport,

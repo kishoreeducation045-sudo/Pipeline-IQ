@@ -2,11 +2,11 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    anthropic_api_key: str
-    github_token: str = ""
-    github_webhook_secret: str = ""
+    gemini_api_key: str
+    github_token: str | None = None
+    github_webhook_secret: str | None = None
     gitlab_webhook_secret: str = ""
-    claude_model: str = "claude-sonnet-4-5"
+    gemini_model: str = "gemini-2.5-flash"
     sqlite_path: str = "/data/pipelineiq.db"
     chroma_path: str = "/data/chroma"
     cors_origins: list[str] = ["http://localhost:5173"]

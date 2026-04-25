@@ -45,11 +45,16 @@ async def github_webhook(
     return {"accepted": True, "failure_id": failure_id}
 
 async def process_github_failure(failure_id: str, payload: dict):
-    ingestor = GitHubIngestor()
-    ctx = await ingestor.fetch_context(failure_id, payload)
-    orchestrator = RCAOrchestrator()
-    rca = await orchestrator.process(ctx)
-    await manager.broadcast({"type": "rca_ready", "failure_id": failure_id, "summary": rca.summary})
+    try:
+        import traceback
+        ingestor = GitHubIngestor()
+        ctx = await ingestor.fetch_context(failure_id, payload)
+        orchestrator = RCAOrchestrator()
+        rca = await orchestrator.process(ctx)
+        await manager.broadcast({"type": "rca_ready", "failure_id": failure_id, "summary": rca.summary})
+    except Exception as e:
+        print(f"BACKGROUND TASK FAILED for {failure_id}: {str(e)}")
+        traceback.print_exc()
 
 @router.post("/gitlab")
 async def gitlab_webhook(request: Request):
